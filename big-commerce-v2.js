@@ -67,12 +67,12 @@ async function onRequest(request, settings) {
         }
         let customer = await res.json()
 
-        if (customer.form_fields){
-            customer.janrain_id = findFormFields("JanrainId",customer.form_fields);
-            customer.source_id = findFormFields("SourceId",customer.form_fields);
-            customer.marketing_program = findFormFields("MarketingProgram",customer.form_fields);
-            customer.janrain_uuid = findFormFields("JanrainUUID",customer.form_fields);
-          }
+        if (customer.form_fields) {
+            customer.janrain_id = findFormFields("JanrainId", customer.form_fields);
+            customer.source_id = findFormFields("SourceId", customer.form_fields);
+            customer.marketing_program = findFormFields("MarketingProgram", customer.form_fields);
+            customer.janrain_uuid = findFormFields("JanrainUUID", customer.form_fields);
+        }
 
         return customer;
     }
@@ -81,16 +81,19 @@ async function onRequest(request, settings) {
         const props = {};
         orderDateModified = new Date(order.date_modified)
         orderDateCreated = new Date(order.date_created)
-        if (typeof order.date_shipped === "string"){
+        if (typeof order.date_shipped === "string") {
             orderDateShipped = new Date(order.date_shipped)
         }
-        
+        else {
+            orderDateShipped = ""
+        }
+
 
         props['orderId'] = order.id;
         props['bigCommerceId'] = order.customer_id;
-        props['orderDateCreated'] = orderDateCreated.toISOString();
-        props['orderDateModified'] = orderDateModified.toISOString();
-        props['orderDateShipped'] = orderDateShipped.toISOString();
+        props['orderDateCreated'] = orderDateCreated
+        props['orderDateModified'] = orderDateModified
+        props['orderDateShipped'] = orderDateShipped
         props['orderStatusId'] = order.status_id;
         props['orderStatus'] = order.status;
         props['orderSubtotalExcludingTax'] = order.subtotal_ex_tax;
@@ -206,48 +209,143 @@ async function onRequest(request, settings) {
     }
 
     const setEventName = async status_id => {
-        return status_id === 10? "Order Completed"
-                : status_id === 5? "Order Cancelled"
-                : status_id === 4 || status_id === 14? "Order Refunded"
-                : "Order Updated"
+        return status_id === 10 ? "Order Completed" :
+            status_id === 5 ? "Order Cancelled" :
+            status_id === 4 || status_id === 14 ? "Order Refunded" :
+            "Order Updated"
     }
 
     const setExternalIds = async customer => {
         const external_ids = []
-        const creatExtId = function (id, type){
-          this.id = id.toString(),
-          this.type = type,
-          this.collection = "users",
-          this.encoding = "none"
+        const creatExtId = function (id, type) {
+            this.id = id.toString(),
+                this.type = type,
+                this.collection = "users",
+                this.encoding = "none"
         }
-        if (customer.janrain_id){
-          const consumerId = new creatExtId(customer.janrain_id, "consumerId");
-          external_ids.push(consumerId);
+        if (customer.janrain_id) {
+            const consumerId = new creatExtId(customer.janrain_id, "consumerId");
+            external_ids.push(consumerId);
         }
-      
-        if (customer.source_id){
-          const sourceId = new creatExtId(customer.source_id, "sourceId");
-          external_ids.push(sourceId);
+
+        if (customer.source_id) {
+            const sourceId = new creatExtId(customer.source_id, "sourceId");
+            external_ids.push(sourceId);
         }
-      
-        if (customer.marketing_program){
-          const marketingProgramNumber = new creatExtId(customer.marketing_program, "marketingProgramNumber");
-          external_ids.push(marketingProgramNumber);
+
+        if (customer.marketing_program) {
+            const marketingProgramNumber = new creatExtId(customer.marketing_program, "marketingProgramNumber");
+            external_ids.push(marketingProgramNumber);
         }
-      
-        if (customer.id){
-          const bigCommerceId = new creatExtId(customer.id, "bigCommerceId");
-          external_ids.push(bigCommerceId);
+
+        if (customer.id) {
+            const bigCommerceId = new creatExtId(customer.id, "bigCommerceId");
+            external_ids.push(bigCommerceId);
         }
-      
+
         return external_ids
-      }
+    }
 
-      const buildTraits = async customer => {
-          let traits = {};
-          console.log(customer);
-      }
+    const buildTraits = async (customer, timestamp) => {
+        let email_hash = crypto.createHash('sha256').update(customer.email.toLowerCase()).digest('hex');
+        if (customer.phone) {
+            let phone_hash = crypto.createHash('sha256').update(customer.phone).digest('hex');
+        } else {
+            phone_hash = ""
+        }
 
+        let traits = {
+            "email": customer.email,
+            "emailSha256Hash": email_hash,
+            "firstName": customer.first_name,
+            "lastName": customer.last_name,
+            "phoneNumber": customer.phone,
+            "phoneNumberSha256Hash": phone_hash,
+            "userId": customer.id,
+            "lastActivityDate": timestamp,
+            "registrationDate": new Date(customer.date_created),
+            //"sourceId": settings,
+            //"marketingProgramNumber": settings,
+            //"countryCode": settings
+
+        };
+        return traits;
+    }
+
+    const getCustomerAddress = async (customer_id, customer_address_id, base_url, headers) => {
+        const endpoint = `${base_url}customers/${customer_id}/addresses/${customer_address_id}`
+        console.log(endpoint)
+        const url = new URL(endpoint);
+        const res = await fetch(url.toString(), {
+            headers: new Headers(headers),
+            method: "get",
+        })
+        if (!res.ok) {
+            throw Error(res.statusText)
+        }
+        let customerAddress = await res.json()
+
+        return customerAddress;
+    }
+
+    const buildAddressTraits = async (customerAddress) => {
+        //let email_hash = crypto.createHash('sha256').update(customer.email.toLowerCase()).digest('hex');
+        if (customerAddress.phone) {
+            let phone_hash = crypto.createHash('sha256').update(customerAddress.phone).digest('hex');
+        } else {
+            phone_hash = ""
+        }
+
+        let traits = {
+            "firstName": customerAddress.first_name,
+            "lastName": customerAddress.last_name,
+            "phoneNumber": customerAddress.phone,
+            "phoneNumberSha256Hash": phone_hash,
+            "userId": customerAddress.customer_id,
+            "bigCommerceId": customerAddress.customer_id,
+            "addressLine1": customerAddress.street1,
+            "addressLine2": customerAddress.street2,
+            "cityName": customerAddress.city,
+            "territoryName": customerAddress.state,
+            "postalAreaCode": customerAddress.zip,
+            //"countryCode": settings
+        };
+        return traits;
+    }
+
+    const getSubscriber = async (subscriber_id, base_url, headers) => {
+        const endpoint = `${base_url}customers/subscribers/${subscriber_id}`
+        console.log(endpoint)
+        const url = new URL(endpoint);
+        const res = await fetch(url.toString(), {
+            headers: new Headers(headers),
+            method: "get",
+        })
+        if (!res.ok) {
+            throw Error(res.statusText)
+        }
+        let subscriber = await res.json()
+
+        return subscriber.data;
+    }
+
+    const buildSubscriberProps = async (subscriber) => {
+        let email_hash = crypto.createHash('sha256').update(subscriber.email.toLowerCase()).digest('hex');
+
+        let props = {
+            "email": subscriber.email,
+            "emailSha256Hash": email_hash,
+            "userId": subscriber.id,
+            "lastActivityDate": new Date(subscriber.date_modified),
+            "registrationDate": new Date(subscriber.date_created),
+            //"sourceId": settings,
+            //"emailSubscriptionServiceName": settings,
+            //"emailSubscriptionOptNumber": settings,
+            //"optText":settings
+
+        };
+        return props;
+    }
 
     let executeOrderFlow = async function (requestBody) {
         let base_url = `https://api.bigcommerce.com/stores/${settings.storeId}/v2/`
@@ -270,12 +368,12 @@ async function onRequest(request, settings) {
 
         Segment.track({
             event: eventName,
-            userId: "1234",
+            userId: customer_id,
             properties: properties,
             timestamp: timestamp.toISOString(),
-             context:{
-                 externalIds: externalIds
-             }   
+            context: {
+                externalIds: externalIds
+            }
         })
     }
 
@@ -288,36 +386,90 @@ async function onRequest(request, settings) {
             'Accept': 'application/json'
         }
 
-// 1. When a new customer registers in BigCommerce, I see an .identify() call in Segment with the required traits (see below).
-// 2. When an existing customer updates their profile in BigCommerce, I see an .identify() call in Segment with the required traits (see below). 
-// 3. All profile related identify calls will have the required externalIds needed for identity resolution in Segment.
-// 4. When a customer deletes their account — ?
-// 5. Date fields in traits should be set to ISO-8601.
-// 6. Required traits for all registration related identify() calls:
+        // 1. When a new customer registers in BigCommerce, I see an .identify() call in Segment with the required traits (see below).
+        // 2. When an existing customer updates their profile in BigCommerce, I see an .identify() call in Segment with the required traits (see below). 
+        // 3. All profile related identify calls will have the required externalIds needed for identity resolution in Segment.
+        // 4. When a customer deletes their account — ?
+        // 5. Date fields in traits should be set to ISO-8601.
+        // 6. Required traits for all registration related identify() calls:
 
         let customer_id = requestBody.data.id;
         let customer = await getCustomer(customer_id, base_url, headers);
-        let traits = await buildTraits(customer, profile_fields)
-        const externalIds = await setExternalIds(customer);
         let timestamp = new Date(customer.date_modified);
-
+        let traits = await buildTraits(customer, timestamp)
+        const externalIds = await setExternalIds(customer);
 
         Segment.identify({
-            userId: "1234",
-            //traits: traits,
+            userId: customer_id,
+            traits: traits,
             timestamp: timestamp.toISOString(),
-             context:{
-                 externalIds: externalIds
-             }   
+            context: {
+                externalIds: externalIds
+            }
         })
     }
+
+    let executeCustomerAddressFlow = async function (requestBody) {
+        let base_url = `https://api.bigcommerce.com/stores/${settings.storeId}/v2/`
+        let headers = {
+            'x-auth-client': settings.authClient,
+            'x-auth-token': settings.authToken,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+
+        let customer_id = requestBody.data.address.customer_id;
+        let customer_address_id = requestBody.data.id
+        let customer = await getCustomer(customer_id, base_url, headers);
+        let customerAddress = await getCustomerAddress(customer_id, customer_address_id, base_url, headers);
+        let timestamp = new Date(customer.date_modified);
+        let traits = await buildAddressTraits(customerAddress)
+        const externalIds = await setExternalIds(customer);
+
+        Segment.identify({
+            userId: customer_id,
+            traits: traits,
+            context: {
+                externalIds: externalIds
+            }
+        })
+    }
+
+    let executeSubscriberFlow = async function (requestBody) {
+        let base_url = `https://api.bigcommerce.com/stores/${settings.storeId}/v3/`
+        let headers = {
+            'x-auth-client': settings.authClient,
+            'x-auth-token': settings.authToken,
+            'Content-Type': 'application/json',
+            'Accept': 'application/json'
+        }
+        let subscriber_id = requestBody.data.id
+        let subscriber = await getSubscriber(subscriber_id, base_url, headers);
+        let properties = await buildSubscriberProps(subscriber);
+        //const eventName = await setEventName(order.status_id);
+        //const externalIds = await setExternalIds(customer);
+
+        Segment.track({
+            event: "Changed Opt Status",
+            userId: subscriber.id, // id of subscriber record
+            properties: properties,
+        })
+    }
+
+
 
 
     if (requestBody.data.type === 'order') {
         await executeOrderFlow(requestBody);
     }
-    if (requestBody.data.type === 'customer') {
+    if (requestBody.scope === "store/customer/address/updated" || requestBody.scope === "store/customer/address/created") {
+        await executeCustomerAddressFlow(requestBody)
+    }
+    if (requestBody.scope === "store/customer/updated" || requestBody.scope === "store/customer/created") {
         await executeCustomerFlow(requestBody)
+    }
+    if (requestBody.data.type === 'subscriber') {
+        await executeSubscriberFlow(requestBody);
     }
 
 }
